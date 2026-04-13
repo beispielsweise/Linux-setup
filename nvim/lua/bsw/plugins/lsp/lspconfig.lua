@@ -1,0 +1,172 @@
+return {
+    "neovim/nvim-lspconfig",
+    event = { "BufReadPre", "BufNewFile" },
+    dependencies = {
+        "hrsh7th/cmp-nvim-lsp",
+        { "antosha417/nvim-lsp-file-operations", config = true },
+        { "folke/neodev.nvim",                   opts = {} },
+    },
+    config = function()
+        -- import lspconfig plugin
+        local lspconfig = require("lspconfig")
+
+        -- import mason_lspconfig plugin
+        local mason_lspconfig = require("mason-lspconfig")
+
+        -- import cmp-nvim-lsp plugin
+        local cmp_nvim_lsp = require("cmp_nvim_lsp")
+
+        local keymap = vim.keymap
+
+        vim.api.nvim_create_autocmd("LspAttach", {
+            group = vim.api.nvim_create_augroup("UserLspConfig", {}),
+            callback = function(ev)
+                -- Buffer local mappings.
+                -- See `:help vim.lsp.*` for documentation on any of the below functions
+                local opts = { buffer = ev.buf, silent = true }
+
+                -- set keybinds
+                opts.desc = "Show LSP references"
+                keymap.set("n", "<leader>gr", "<cmd>Telescope lsp_references<CR>", opts) -- show definition, references
+
+                opts.desc = "Go to declaration"
+                keymap.set("n", "<leader>gD", vim.lsp.buf.declaration, opts) -- go to declaration
+
+                opts.desc = "Show LSP definitions"
+                keymap.set("n", "<leader>gd", "<cmd>Telescope lsp_definitions<CR>", opts) -- show lsp definitions
+
+                opts.desc = "Show LSP implementations"
+                keymap.set("n", "<leader>gi", "<cmd>Telescope lsp_implementations<CR>", opts) -- show lsp implementations
+
+                opts.desc = "Show LSP type definitions"
+                keymap.set("n", "<leader>gt", "<cmd>Telescope lsp_type_definitions<CR>", opts) -- show lsp type definitions
+
+                opts.desc = "See available code actions"
+                keymap.set({ "n", "v" }, "<leader>da", vim.lsp.buf.code_action, opts) -- see available code actions, in visual mode will apply to selection
+
+                opts.desc = "Smart rename"
+                keymap.set("n", "<leader>rr", vim.lsp.buf.rename, opts) -- smart rename
+
+                opts.desc = "Show buffer diagnostics"
+                keymap.set("n", "<leader>dD", "<cmd>Telescope diagnostics bufnr=0<CR>", opts) -- show  diagnostics for file
+
+                opts.desc = "Show line diagnostics"
+                keymap.set("n", "<leader>dd", vim.diagnostic.open_float, opts) -- show diagnostics for line
+
+                opts.desc = "Go to previous diagnostic"
+                keymap.set("n", "[d", vim.diagnostic.goto_prev, opts) -- jump to previous diagnostic in buffer
+
+                opts.desc = "Go to next diagnostic"
+                keymap.set("n", "]d", vim.diagnostic.goto_next, opts) -- jump to next diagnostic in buffer
+
+                opts.desc = "Show documentation for what is under cursor"
+                keymap.set("n", "dk", vim.lsp.buf.hover, opts) -- show documentation for what is under cursor
+
+                -- Quickfix List (Where compiler errors live)
+                keymap.set("n", "<leader>do", "<cmd>copen<CR>", { desc = "Open Quickfix (Error list)" })
+                keymap.set("n", "<leader>dc", "<cmd>cclose<CR>", { desc = "Close Quickfix" })
+                keymap.set("n", "dh", "<cmd>cprevious<CR>", { desc = "Previous Error" })
+                keymap.set("n", "dl", "<cmd>cnext<CR>", { desc = "Next Error" })
+            end,
+        })
+
+        -- used to enable autocompletion (assign to every lsp server config)
+        local capabilities = cmp_nvim_lsp.default_capabilities()
+
+        -- Change the Diagnostic symbols in the sign column (gutter)
+        vim.diagnostic.config({
+            signs = {
+                text = {
+                    [vim.diagnostic.severity.ERROR] = "",
+                    [vim.diagnostic.severity.WARN]  = "",
+                    [vim.diagnostic.severity.INFO]  = "",
+                    [vim.diagnostic.severity.HINT]  = "󰠠",
+                },
+            },
+        })
+
+        -- This will enable lsp to use pre-installed clangd installation
+        -- Used for nvim setup for an ARM machine
+        -- lspconfig.clangd.setup {
+        --     settings = {
+        --         ["clangd"] = {},
+        --     },
+        -- }
+        --
+        -- Uncomment the whole thing if no debugging is required.
+        -- Delete rust-tools.lua
+        -- Uncomment for ARM setup or setup without debugger
+        -- lspconfig.rust_analyzer.setup({
+        --     -- for ARM machines replace
+        --     -- cmd = { "/data/data/com.termux.nix/files/home/.nix-profile/bin/rust-analyzer" },
+        --     settings = {
+        --         ["rust-analyzer"] = {
+        --             cargo = {
+        --                 allFeatures = true,
+        --             },
+        --             procMacro = {
+        --                 enable = true,
+        --             },
+        --         },
+        --     },
+        -- })
+
+
+
+        -- Attempt at supressing [missing-property] qmlls quickshell quirk
+        do
+            local orig = vim.lsp.handlers["textDocument/publishDiagnostics"]
+
+            vim.lsp.handlers["textDocument/publishDiagnostics"] = function(err, result, ctx, config)
+                if result and result.diagnostics and ctx and ctx.client_id then
+                    local client = vim.lsp.get_client_by_id(ctx.client_id)
+
+                    if client and client.name == "qmlls" then
+                        result.diagnostics = vim.tbl_filter(function(diag)
+                            return not diag.message:match("missing%-property")
+                        end, result.diagnostics)
+                    end
+                end
+
+                return orig(err, result, ctx, config)
+            end
+        end
+
+        mason_lspconfig.setup({
+            -- default handler for installed servers
+            function(server_name)
+                lspconfig[server_name].setup({
+                    capabilities = capabilities,
+                })
+            end,
+            ["lua_ls"] = function()
+                -- configure lua server (with special settings)
+                lspconfig["lua_ls"].setup({
+                    capabilities = capabilities,
+                    settings = {
+                        Lua = {
+                            -- make the language server recognize "vim" global
+                            diagnostics = {
+                                globals = { "vim" },
+                            },
+                            completion = {
+                                callSnippet = "Replace",
+                            },
+                        },
+                    },
+                })
+            end,
+            ["qmlls"] = function()
+                lspconfig.qmlls.setup({
+                    cmd = {
+                        "qmlls",
+                        "-E", "/usr/lib/qt6/qml",
+                    },
+
+                    root_dir = util.root_pattern(".qmlls.ini", ".qmlls", "shell.qml", ".git"),
+                    single_file_support = true,
+                })
+            end,
+        })
+    end,
+}
